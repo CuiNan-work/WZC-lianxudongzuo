@@ -61,8 +61,9 @@ blk_a = 0.05
 blk_b = 0.005
 
 # 奖励权重
-w_time = 0.6
-w_fair = 0.4
+w_time = 0.5   # 时延奖励权重
+w_fair = 0.3   # 公平性（Jain指数）奖励权重
+w_usage = 0.2  # UAV利用率奖励权重：鼓励同时使用多架UAV，避免单UAV垄断
 
 
 class UAVEnv(gym.Env):
@@ -115,6 +116,10 @@ class UAVEnv(gym.Env):
         self.normalized_delay = 0
         # 归一化Jain
         self.normalized_Jain = 0
+
+        # UAV利用率
+        self.active_uavs = 0
+        self.uav_usage_score = 0.0
 
         # 奖励
         self.reward = 0
@@ -184,6 +189,9 @@ class UAVEnv(gym.Env):
 
         self.normalized_delay = 0  # 归一化时延
         self.normalized_Jain = 0  # 归一化Jain
+
+        self.active_uavs = 0       # 重置UAV利用率
+        self.uav_usage_score = 0.0
 
         obs = self._get_obs()
         info = {}
@@ -278,6 +286,8 @@ class UAVEnv(gym.Env):
             "normalized_delay": self.normalized_delay,
             "normalized_Jain": self.normalized_Jain,
             "uav_load": self.uav_L.copy(),
+            "active_uavs": self.active_uavs,
+            "uav_usage_score": self.uav_usage_score,
             "step": self.step_count,
             "reward": self.reward,
 
@@ -589,8 +599,15 @@ class UAVEnv(gym.Env):
 
     # 计算step奖励
     def compute_step_reward(self):
+        # UAV利用率：当前有负载的UAV数量占总数比例
+        # 取值范围 [0, 1/num_uavs, 2/num_uavs, 1]
+        # 显式奖励智能体同时使用多架UAV，防止将全部用户集中到单一UAV
+        self.active_uavs = sum(1 for L in self.uav_L if L > 0)
+        self.uav_usage_score = self.active_uavs / num_uavs
 
-        self.reward = w_time * (1 - self.normalized_delay) + w_fair * self.normalized_Jain
+        self.reward = (w_time * (1 - self.normalized_delay)
+                       + w_fair * self.normalized_Jain
+                       + w_usage * self.uav_usage_score)
 
         self.reward_history.append(self.reward)
 
@@ -619,7 +636,9 @@ class CustomPrintCallback(BaseCallback):
             print(f"  Total time : {info['total_time']:.4f} s")
             print(f"  Jain step  : {info['Jain_step']:.4f} "
                   f"(norm_delay={info['normalized_delay']:.4f}, norm_jain={info['normalized_Jain']:.4f})")
-            print(f"  UAV load   : {info['uav_load']}")
+            print(f"  UAV load   : {info['uav_load']}  "
+                  f"| Active UAVs: {info['active_uavs']}/{num_uavs}  "
+                  f"| Usage score: {info['uav_usage_score']:.3f}")
 
             # 信道与速率
             ch = info["composite_channel"]  # (num_uavs, num_users)
